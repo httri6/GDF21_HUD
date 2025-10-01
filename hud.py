@@ -22,7 +22,7 @@ rpm_font = pygame.font.SysFont(None, 36)  # 小さめ
 clock = pygame.time.Clock()
 GEARS = ['N', '1', '2', '3', '4']
 
-# ロゴ画像ロード（大きめ、端に寄せるためmargin大きめ）
+# ロゴ画像ロード
 icon_size = 200
 indicator_margin = 18  # 端に寄せる
 water_icon = pygame.image.load("water_icon.png").convert_alpha()
@@ -198,7 +198,6 @@ def main():
     margin = indicator_margin
     font = font_sml
 
-    # やや下に配置（+40pxずらし）
     center_offset_y = 40
 
     gear_center = (WIDTH//2, HEIGHT//2-20+center_offset_y)
