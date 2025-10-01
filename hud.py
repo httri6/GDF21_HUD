@@ -3,138 +3,238 @@ import sys
 import math
 
 # 色定義
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-BLUE  = (0, 180, 255)
-GREEN = (0, 255, 0)
-RED   = (255, 0, 0)
-YELLOW = (255, 255, 0)
-DARK_BLUE = (0, 60, 150)
-ORANGE = (255, 128, 0)
-GRAY = (180, 180, 180)
+BLACK      = (0, 0, 0)
+WHITE      = (255, 255, 255)
+YELLOW     = (255, 255, 0)
+GREEN      = (0, 255, 0)
+BRIGHT_RED = (255, 80, 80)
+GRAY       = (40, 40, 40)
 
-# 画面サイズ
-WIDTH = 800
-HEIGHT = 480
+WIDTH, HEIGHT = 900, 500
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption('HUD Dashboard')
-font_l = pygame.font.SysFont(None, 80)
-font_m = pygame.font.SysFont(None, 48)
-font_s = pygame.font.SysFont(None, 32)
+pygame.display.set_caption('HUD Dashboard Gear Arc Tachometer')
+font_big = pygame.font.SysFont(None, 230)
+font_sml = pygame.font.SysFont(None, 90)
+rpm_font = pygame.font.SysFont(None, 36)  # 小さめ
+
 clock = pygame.time.Clock()
+GEARS = ['N', '1', '2', '3', '4']
 
-def get_tacho_color(rpm):
-    if rpm < 7500:
-        return BLUE
-    elif rpm < 8500:
-        return GREEN
+# ロゴ画像ロード（大きめ、端に寄せるためmargin大きめ）
+icon_size = 200
+indicator_margin = 18  # 端に寄せる
+water_icon = pygame.image.load("water_icon.png").convert_alpha()
+water_icon = pygame.transform.smoothscale(water_icon, (icon_size, icon_size))
+battery_icon = pygame.image.load("battery_icon.png").convert_alpha()
+battery_icon = pygame.transform.smoothscale(battery_icon, (icon_size, icon_size))
+engine_icon = pygame.image.load("engine_icon.png").convert_alpha()
+engine_icon = pygame.transform.smoothscale(engine_icon, (icon_size, icon_size))
+oil_icon = pygame.image.load("oil_icon.png").convert_alpha()
+oil_icon = pygame.transform.smoothscale(oil_icon, (icon_size, icon_size))
+
+def tint_icon(icon, color):
+    arr = pygame.surfarray.pixels3d(icon.copy())
+    mask = (arr[:,:,0] < 128) & (arr[:,:,1] < 128) & (arr[:,:,2] < 128)
+    arr[mask] = color
+    surface = pygame.Surface(icon.get_size(), pygame.SRCALPHA)
+    surface.blit(icon, (0,0))
+    arr_out = pygame.surfarray.pixels3d(surface)
+    arr_out[:,:,:] = arr
+    return surface
+
+def get_arc_angles(gear_rect, center):
+    left_down = (gear_rect.left, gear_rect.bottom)
+    right_down = (gear_rect.right, gear_rect.bottom)
+    cx, cy = center
+    angle_start = math.degrees(math.atan2(left_down[1]-cy, left_down[0]-cx))
+    angle_end   = math.degrees(math.atan2(right_down[1]-cy, right_down[0]-cx))
+    if angle_end <= angle_start:
+        angle_end += 360
+    return angle_start, angle_end
+
+def draw_gear_arc_tachometer(center, gear_rect, radius, rpm, fixed_angles=None):
+    n = 48
+    min_rpm = 6000
+    yellow_rpm = 8000
+    red_rpm = 9000
+    max_rpm = 10000
+
+    cx, cy = center
+
+    if fixed_angles is not None:
+        angle_start, angle_end = fixed_angles
     else:
-        return RED
+        angle_start, angle_end = get_arc_angles(gear_rect, center)
+    arc_total = angle_end - angle_start
 
-def get_temp_color(value, blue_max, green_max):
-    if value <= blue_max:
-        return BLUE
-    elif value <= green_max:
-        return GREEN
-    else:
-        return RED
+    points = []
+    for i in range(n):
+        theta_deg = angle_start + arc_total * (i / (n-1))
+        theta_rad = math.radians(theta_deg)
+        x = cx + radius * math.cos(theta_rad)
+        y = cy + radius * math.sin(theta_rad)
+        points.append((x, y))
 
-def get_pressure_color(pressure):
-    # 値と色の対応は任意。例として
-    if pressure < 2:
-        return RED
-    elif pressure < 4:
-        return ORANGE
-    elif pressure < 6:
-        return GREEN
-    else:
-        return BLUE
+    progress = min(max((rpm - min_rpm) / (max_rpm - min_rpm), 0.0), 1.0)
+    lit_count = int(progress * (n-1)) + 1 if rpm >= min_rpm else 0
 
-def draw_text(text, font, color, x, y):
-    img = font.render(text, True, color)
-    screen.blit(img, (x, y))
-
-def draw_tachometer(rpm):
-    cx, cy, radius = WIDTH//2, 350, 200
-    pygame.draw.circle(screen, GRAY, (cx, cy), radius, 3)
-    # 1000～9000rpmをアークで表示
-    for i in range(10, 91, 1):  # 1000rpm～9000rpm: 100rpmごと
-        angle = (i-10)/80 * 240 - 120   # -120°～120°に配置
-        rad = angle * 3.1416 / 180
-        length = radius - 20 if i%5==0 else radius - 10
-        x1 = cx + int(length * math.cos(rad))
-        y1 = cy + int(length * math.sin(rad))
-        x2 = cx + int(radius * math.cos(rad))
-        y2 = cy + int(radius * math.sin(rad))
-        color = None
-        if i*100 >= 8500:
-            color = RED
-        elif i*100 >= 7500:
-            color = GREEN
-        elif i*100 >= 6500:
-            color = BLUE
+    def get_color(idx):
+        ratio = idx/(n-1)
+        now_rpm = min_rpm + (max_rpm-min_rpm) * ratio
+        if now_rpm < yellow_rpm:
+            return GREEN
+        elif now_rpm < red_rpm:
+            return YELLOW
         else:
-            color = GRAY
-        width = 6 if int(rpm/100) >= i else 2
-        pygame.draw.line(screen, color, (x1, y1), (x2, y2), width)
-    # 針
-    percent = min(max((rpm-1000)/8000, 0), 1)
-    angle = percent*240 - 120
-    rad = angle * 3.1416 / 180
-    x = cx + int((radius-60) * math.cos(rad))
-    y = cy + int((radius-60) * math.sin(rad))
-    pygame.draw.line(screen, YELLOW, (cx, cy), (x, y), 6)
-    # 数字
-    draw_text(f'{rpm:.0f} rpm', font_m, WHITE, cx-90, cy-40)
+            return BRIGHT_RED
+
+    thick_width = 32
+    for i in range(n-1):
+        color = GRAY
+        if i < lit_count-1:
+            color = get_color(i)
+        pygame.draw.line(screen, color, points[i], points[i+1], thick_width)
+
+    memori_font = pygame.font.SysFont(None, 28)
+    dot_outer_r = radius + thick_width//2 + 16
+    dot_inner_r = radius + thick_width//2 + 4
+
+    percent_9000 = (9000 - min_rpm) / (max_rpm - min_rpm)
+    theta_deg_9000 = angle_start + arc_total * percent_9000
+    theta_rad_9000 = math.radians(theta_deg_9000)
+    lx_9000 = cx + (dot_outer_r + 28) * math.cos(theta_rad_9000)
+    ly_9000 = cy + (dot_outer_r + 28) * math.sin(theta_rad_9000) + 20  # +20ピクセル下
+
+    percent_7000 = (7000 - min_rpm) / (max_rpm - min_rpm)
+    theta_deg_7000 = angle_start + arc_total * percent_7000
+    theta_rad_7000 = math.radians(theta_deg_7000)
+    lx_7000 = cx + (dot_outer_r + 28) * math.cos(theta_rad_7000)
+    ly_7000 = ly_9000  # 9000と同じy座標
+
+    for t_rpm in range(6000, 10001, 100):
+        percent = (t_rpm - min_rpm) / (max_rpm - min_rpm)
+        if percent < 0 or percent > 1: continue
+        theta_deg = angle_start + arc_total * percent
+        theta_rad = math.radians(theta_deg)
+        x = cx + dot_outer_r * math.cos(theta_rad)
+        y = cy + dot_outer_r * math.sin(theta_rad)
+        if t_rpm % 1000 == 0:
+            pygame.draw.circle(screen, WHITE, (int(x), int(y)), 8)
+            label = memori_font.render(str(t_rpm), True, WHITE)
+            label_offset = 28
+            if t_rpm == 7000:
+                lx = lx_7000
+                ly = ly_7000
+            elif t_rpm == 9000:
+                lx = lx_9000
+                ly = ly_9000
+            else:
+                lx = cx + (dot_outer_r + label_offset) * math.cos(theta_rad)
+                ly = cy + (dot_outer_r + label_offset) * math.sin(theta_rad)
+            label_rect = label.get_rect(center=(lx, ly))
+            screen.blit(label, label_rect)
+        else:
+            pygame.draw.circle(screen, WHITE, (int(x), int(y)), 3)
+
+    for t_rpm, color in [(8000, YELLOW), (9000, BRIGHT_RED)]:
+        percent = (t_rpm - min_rpm) / (max_rpm - min_rpm)
+        theta_deg = angle_start + arc_total * percent
+        theta_rad = math.radians(theta_deg)
+        x = cx + dot_outer_r * math.cos(theta_rad)
+        y = cy + dot_outer_r * math.sin(theta_rad)
+        pygame.draw.circle(screen, color, (int(x), int(y)), 11)
+
+    rpm_txt = rpm_font.render(str(rpm), True, WHITE)
+    rpm_rect = rpm_txt.get_rect(center=(cx, cy+radius//2+25))
+    screen.blit(rpm_txt, rpm_rect)
+
+def draw_gear(center, gear):
+    txt = font_big.render(str(gear), True, WHITE)
+    rect = txt.get_rect(center=center)
+    screen.blit(txt, rect)
+    return rect  # rectを返却
+
+def draw_corner_icon(x, y, icon, color, value_str, font=font_sml):
+    icon_colored = tint_icon(icon, color)
+    screen.blit(icon_colored, (x, y))
+    txt = font.render(value_str, True, WHITE)
+    rect = txt.get_rect(center=(x+icon.get_width()//2, y+icon.get_height()-8))
+    screen.blit(txt, rect)
+
+def get_lamp_color(val, kind):
+    # 水温ランプ: ~70°C緑、~90°Cイエロー、90°C超で赤
+    if kind == "water":
+        if val <= 70:
+            return GREEN
+        elif val <= 90:
+            return YELLOW
+        else:
+            return BRIGHT_RED
+    # 油温ランプ: ~100°C緑、~120°Cイエロー、120°C超で赤
+    elif kind == "oil":
+        if val <= 100:
+            return GREEN
+        elif val <= 120:
+            return YELLOW
+        else:
+            return BRIGHT_RED
+    elif kind == "battery":
+        return GREEN if val >= 12.0 else BRIGHT_RED
+    elif kind == "engine":
+        return GREEN if val >= 100 else BRIGHT_RED
+    return (128,128,128)
 
 def main():
-    rpm = 1000
-    water_temp = 60
+    rpm = 6000
+    gear_idx = 0
+    water_temp = 65
     oil_temp = 90
-    oil_pressure = 4.5
-    fuel_pressure = 3.5
+    battery_v = 12.5
+    oil_press = 110
     step = 0
+
+    margin = indicator_margin
+    font = font_sml
+
+    # やや下に配置（+40pxずらし）
+    center_offset_y = 40
+
+    gear_center = (WIDTH//2, HEIGHT//2-20+center_offset_y)
+    base_gear_rect = draw_gear(gear_center, GEARS[0])
+    fixed_angles = get_arc_angles(base_gear_rect, gear_center)
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP: gear_idx = min(gear_idx+1, 4)
+                if event.key == pygame.K_DOWN: gear_idx = max(gear_idx-1, 0)
 
-        # ダミー値変化
         step += 1
-        rpm = 1000 + (step % 80) * 100   # 1000～9000rpm
-        water_temp = 60 + (step % 50)    # 60～109℃
-        oil_temp = 85 + (step % 60)      # 85～144℃
-        oil_pressure = 1.0 + ((step % 60)/10)  # 1.0～7.0
-        fuel_pressure = 2.0 + ((step % 30)/5)  # 2.0～8.0
+        rpm = 6000 + int(4000 * abs(math.sin(step/70)))  # 6000〜10000で上下
+        water_temp = 60 + int(40 * abs(math.sin(step/60)))
+        oil_temp   = 90 + int(50 * abs(math.sin(step/120)))
+        battery_v  = 11.8 + 1.0 * abs(math.sin(step/45))
+        oil_press  = 50 + int(350 * abs(math.sin(step/80)))  # 50~400で動く
 
         screen.fill(BLACK)
 
-        # タコメーター
-        draw_tachometer(rpm)
+        gear_center = (WIDTH//2, HEIGHT//2-20+center_offset_y)
+        gear_rect = draw_gear(gear_center, GEARS[gear_idx])
 
-        # 水温・油温・油圧・燃圧（数値とランプ）
-        draw_text("水温", font_s, WHITE, 30, 30)
-        draw_text(f"{water_temp:.0f} ℃", font_m, WHITE, 30, 60)
-        pygame.draw.circle(screen, get_temp_color(water_temp, 70, 90), (180, 75), 20)
+        draw_gear_arc_tachometer(gear_center, gear_rect, 180, rpm, fixed_angles=fixed_angles)
 
-        draw_text("油温", font_s, WHITE, 30, 150)
-        draw_text(f"{oil_temp:.0f} ℃", font_m, WHITE, 30, 180)
-        pygame.draw.circle(screen, get_temp_color(oil_temp, 110, 125), (180, 195), 20)
-
-        draw_text("油圧", font_s, WHITE, 30, 270)
-        draw_text(f"{oil_pressure:.1f} kg/cm2", font_m, WHITE, 30, 300)
-        pygame.draw.circle(screen, get_pressure_color(oil_pressure), (180, 315), 20)
-
-        draw_text("燃圧", font_s, WHITE, 30, 370)
-        draw_text(f"{fuel_pressure:.1f} kg/cm2", font_m, WHITE, 30, 400)
-        pygame.draw.circle(screen, get_pressure_color(fuel_pressure), (180, 415), 20)
+        draw_corner_icon(margin, margin, water_icon, get_lamp_color(water_temp, "water"), f"{water_temp}", font)
+        draw_corner_icon(margin, HEIGHT-margin-icon_size, battery_icon, get_lamp_color(battery_v, "battery"), f"{battery_v:.1f}", font)
+        draw_corner_icon(WIDTH-margin-icon_size, margin, oil_icon, get_lamp_color(oil_temp, "oil"), f"{oil_temp}", font)
+        draw_corner_icon(WIDTH-margin-icon_size, HEIGHT-margin-icon_size, engine_icon, get_lamp_color(oil_press, "engine"), f"{oil_press}", font)
 
         pygame.display.update()
-        clock.tick(20)
+        clock.tick(30)
 
 if __name__ == "__main__":
     main()
